@@ -75,7 +75,7 @@ def importearthquakes(filename, minmagnitude):
         # eqcoords = [lat, long]
         eqcoords = feature['geometry']['coordinates']
         eqgeom = "GeomFromText('POINT("
-        eqgeom += str(eqcoords[0]) + " " + str(eqcoords[1])
+        eqgeom += str(eqcoords[1]) + " " + str(eqcoords[0])
         eqgeom += ")', 4326)"
         query = "INSERT INTO earthquakes(id, mag, geom) "
         query += "VALUES ('" + eqid + "', " + str(magnitude) + ", " + eqgeom + ")"
@@ -112,10 +112,10 @@ def outputearthquakes(queryresult):
 def getcitiesnearearthquakes(kmdist):
     """Find all cities within a given km distance of an earthquake."""
     dist = kmdist * 1000
-    query = "SELECT e.id, c.name, Distance(e.geom, c.geom) "
+    query = "SELECT e.id, c.name, ST_Distance(e.geom, c.geom) "
     query += "FROM earthquakes AS e, cities AS c "
     # Distance and PtDistWithin don't seem to use the same method of measuring
-    # distance, since
+    # distance
 #    query += "WHERE PtDistWithin(e.geom, c.geom, " + str(dist) + ", 1)"
     query += "WHERE PtDistWithin(e.geom, c.geom, " + str(dist) + ")"
     conn = db.connect('temp.db')
@@ -137,7 +137,12 @@ def outputcities(queryresult):
         for record in queryresult:
             outputrow = {'earthquake id': record[0],
                          'city name': record[1],
-                         'distance': record[2]}
+#                         'distance': record[2]}
+                         # convert from degrees to kilometers
+                         'distance': record[2] * 111.12}
+            #PtDistWithin gives some questionable values, so clamp output here
+            if outputrow['distance'] > 200:
+                continue
             # unescape apostrophes
             if re.search("''", outputrow['city name']):
                 outputrow['city name'] = re.sub("''", "'", outputrow['city name'])
