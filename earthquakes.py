@@ -37,7 +37,7 @@ def importcities(filename, minpopulation):
         cur.execute("SELECT AddGeometryColumn('cities', 'geom', 4326, " +
                                              "'POINT', 'XY')")
         for row in reader:
-            citysize = row['population']
+            citysize = int(row['population'])
             if citysize < minpopulation:
                 continue
             cityname = row['asciiname']
