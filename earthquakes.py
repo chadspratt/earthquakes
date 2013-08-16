@@ -23,6 +23,7 @@ earthquakefilename = 'all_week.geojson'
 # load the cities into a spatialite table
 # relatively quick, but this is only needed once or rarely anyways
 def importcities(filename, minpopulation):
+    """Load all cities with a given minimum population into a database."""
     with open(filename, 'rb') as inputfile:
         nonulls = (line.replace('\0', '') for line in inputfile)
         reader = csv.DictReader(nonulls, fieldnames=cityfilefields,
@@ -54,6 +55,7 @@ def importcities(filename, minpopulation):
 
 
 def importearthquakes(filename, minmagnitude):
+    """Load all earthquakes with a given minimum magnitude into a database ."""
     conn = db.connect('temp.db')
     cur = conn.cursor()
     # create the table for storing the cities
@@ -83,6 +85,7 @@ def importearthquakes(filename, minmagnitude):
 
 
 def getearthquakes():
+    """Get records for all earthquakes, which consist of id and magnitude."""
     conn = db.connect('temp.db')
     cur = conn.cursor()
     cur.execute("SELECT * FROM earthquakes")
@@ -91,12 +94,13 @@ def getearthquakes():
 
 
 def outputearthquakes(queryresult):
+    """Output the earthquakes with their magnitude to a csv file."""
     fieldnames = ['earthquake id', 'magnitude']
     with open('result_earthquakes.csv', 'w') as outputfile:
         outputfile.truncate(0)
         # might be marginally faster to just output it manually
         # outputfile.write(','.join(record) + '\n')
-        writer = csv.DictWriter(outputfile, fieldnames)
+        writer = csv.DictWriter(outputfile, fieldnames, delimiter='\t')
         writer.writeheader()
         for record in queryresult:
             outputrow = {'earthquake id': record[0],
@@ -106,6 +110,7 @@ def outputearthquakes(queryresult):
 
 # perform the query and output the result to a csv file
 def getcitiesnearearthquakes(kmdist):
+    """Find all cities within a given km distance of an earthquake."""
     dist = kmdist * 1000
     query = "SELECT e.id, c.name, Distance(e.geom, c.geom) "
     query += "FROM earthquakes AS e, cities AS c "
@@ -121,17 +126,19 @@ def getcitiesnearearthquakes(kmdist):
 
 
 def outputcities(queryresult):
+    """Write the result of querying cities near earthquakes to a csv file."""
     fieldnames = ['earthquake id', 'city name', 'distance']
     with open('result_cities.csv', 'w') as outputfile:
         outputfile.truncate(0)
         # might be marginally faster to just output it manually
-        # outputfile.write(','.join(record) + '\n')
-        writer = csv.DictWriter(outputfile, fieldnames)
+        # outputfile.write('\t'.join(record) + '\n')
+        writer = csv.DictWriter(outputfile, fieldnames, delimiter='\t')
         writer.writeheader()
         for record in queryresult:
             outputrow = {'earthquake id': record[0],
                          'city name': record[1],
                          'distance': record[2]}
+            # unescape apostrophes
             if re.search("''", outputrow['city name']):
                 outputrow['city name'] = re.sub("''", "'", outputrow['city name'])
             writer.writerow(outputrow)
@@ -144,10 +151,15 @@ if __name__ == '__main__':
     dbfile.close()
     conn = db.connect('temp.db')
     cur = conn.cursor()
+    # special function to add spatial support to the db
     cur.execute('SELECT InitSpatialMetadata()')
     conn.commit()
     conn.close()
+    # import cities with more than 100k population
     importcities(cityfilename, 100000)
+    # load all earthquakes with greater than 4.5 magnitude
     importearthquakes(earthquakefilename, 4.5)
+    # get and output to file all earthquakes
     getearthquakes()
+    # get and output to file all cities within 200km of an earthquake
     getcitiesnearearthquakes(200)
