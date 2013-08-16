@@ -12,7 +12,7 @@ import re
 from pyspatialite import dbapi2 as db
 
 cityfilename = 'cities15000.txt'
-cityfieldnames = ['geonameid', 'name', 'asciiname', 'alternatenames',
+cityfilefields = ['geonameid', 'name', 'asciiname', 'alternatenames',
                   'latitude', 'longitude', 'feature class', 'feature code',
                   'country code', 'cc2', 'admin1 code', 'admin2 code',
                   'admin3 code', 'admin4 code', 'population', 'elevation',
@@ -25,7 +25,7 @@ earthquakefilename = 'all_week.geojson'
 def importcities(filename, minpopulation):
     with open(filename, 'rb') as inputfile:
         nonulls = (line.replace('\0', '') for line in inputfile)
-        reader = csv.DictReader(nonulls, fieldnames=cityfieldnames,
+        reader = csv.DictReader(nonulls, fieldnames=cityfilefields,
                                 delimiter='\t')
         conn = db.connect('temp.db')
         cur = conn.cursor()
@@ -40,6 +40,7 @@ def importcities(filename, minpopulation):
             if citysize < minpopulation:
                 continue
             cityname = row['asciiname']
+            # escape apostrophes in city names
             if re.search("'", cityname):
                 cityname = re.sub("'", "''", cityname)
             citygeom = "GeomFromText('POINT("
@@ -69,6 +70,7 @@ def importearthquakes(filename, minmagnitude):
         if magnitude < minmagnitude:
             continue
         eqid = feature['id']
+        # eqcoords = [lat, long]
         eqcoords = feature['geometry']['coordinates']
         eqgeom = "GeomFromText('POINT("
         eqgeom += str(eqcoords[0]) + " " + str(eqcoords[1])
@@ -90,25 +92,23 @@ def performselection(kmdist):
     cur = conn.cursor()
     cur.execute(query)
     outputtocsv(cur)
+    conn.close()
 
 
 def outputtocsv(queryresult):
     print 'starting output'
     fieldnames = ['earthquake id', 'city name', 'distance']
-    outputfile = open('result.csv', 'w')
-    outputfile.truncate(0)
-    writer = csv.DictWriter(outputfile, fieldnames)
-    writer.writeheader()
-    for record in queryresult:
-        outputrow = converttodict(record)
-        writer.writerow(outputrow)
-
-
-def converttodict(sqlrow):
-    outputrow = {'earthquake id': sqlrow[0],
-                 'city name': sqlrow[1],
-                 'distance': sqlrow[2]}
-    return outputrow
+    with open('result.csv', 'w') as outputfile:
+        outputfile.truncate(0)
+        # might be marginally faster to just output it manually
+        # outputfile.write(','.join(record) + '\n')
+        writer = csv.DictWriter(outputfile, fieldnames)
+        writer.writeheader()
+        for record in queryresult:
+            outputrow = {'earthquake id': record[0],
+                         'city name': record[1],
+                         'distance': record[2]}
+            writer.writerow(outputrow)
 
 
 if __name__ == '__main__':
