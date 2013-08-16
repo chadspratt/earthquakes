@@ -8,24 +8,24 @@ import csv
 import json
 import re
 
-# only 3rd party library, easy to install through Ubuntu Software Center
+# extends sqlite with spatial abilities
 from pyspatialite import dbapi2 as db
 
 cityfilename = 'cities15000.txt'
+cityfieldnames = ['geonameid', 'name', 'asciiname', 'alternatenames',
+                  'latitude', 'longitude', 'feature class', 'feature code',
+                  'country code', 'cc2', 'admin1 code', 'admin2 code',
+                  'admin3 code', 'admin4 code', 'population', 'elevation',
+                  'dem', 'timezone', 'modification date']
 earthquakefilename = 'all_week.geojson'
-fieldnames = ['geonameid', 'name', 'asciiname', 'alternatenames', 'latitude',
-              'longitude', 'feature class', 'feature code', 'country code',
-              'cc2', 'admin1 code', 'admin2 code', 'admin3 code',
-              'admin4 code', 'population', 'elevation', 'dem', 'timezone',
-              'modification date']
 
 
 # load the cities into a spatialite table
 # relatively quick, but this is only needed once or rarely anyways
-def importcities(filename):
+def importcities(filename, minpopulation):
     with open(filename, 'rb') as inputfile:
         nonulls = (line.replace('\0', '') for line in inputfile)
-        reader = csv.DictReader(nonulls, fieldnames=fieldnames,
+        reader = csv.DictReader(nonulls, fieldnames=cityfieldnames,
                                 delimiter='\t')
         conn = db.connect('temp.db')
         cur = conn.cursor()
@@ -36,7 +36,10 @@ def importcities(filename):
         cur.execute("SELECT AddGeometryColumn('cities', 'geom', 4326, " +
                                              "'POINT', 'XY')")
         for row in reader:
-            cityname = row['name']
+            citysize = row['population']
+            if citysize < minpopulation:
+                continue
+            cityname = row['asciiname']
             if re.search("'", cityname):
                 cityname = re.sub("'", "''", cityname)
             citygeom = "GeomFromText('POINT("
@@ -49,7 +52,7 @@ def importcities(filename):
         conn.close()
 
 
-def importearthquakes(filename):
+def importearthquakes(filename, minmagnitude):
     conn = db.connect('temp.db')
     cur = conn.cursor()
     # create the table for storing the cities
@@ -62,6 +65,9 @@ def importearthquakes(filename):
     parsedfile = json.load(earthquakefile)
     earthquakefile.close()
     for feature in parsedfile['features']:
+        magnitude = feature['properties']['mag']
+        if magnitude < minmagnitude:
+            continue
         eqid = feature['id']
         eqcoords = feature['geometry']['coordinates']
         eqgeom = "GeomFromText('POINT("
@@ -77,7 +83,7 @@ def importearthquakes(filename):
 # perform the query and output the result to a csv file
 def performselection(kmdist):
     dist = kmdist * 1000
-    query = "SELECT e.id, c.name, Distance(e.geom, c.geom) as distance "
+    query = "SELECT e.id, c.name, Distance(e.geom, c.geom) "
     query += "FROM earthquakes AS e, cities as c "
     query += "WHERE PtDistWithin(e.geom, c.geom, " + str(dist) + ")"
     conn = db.connect('temp.db')
@@ -87,17 +93,22 @@ def performselection(kmdist):
 
 
 def outputtocsv(queryresult):
+    print 'starting output'
     fieldnames = ['earthquake id', 'city name', 'distance']
     outputfile = open('result.csv', 'w')
     outputfile.truncate(0)
     writer = csv.DictWriter(outputfile, fieldnames)
     writer.writeheader()
     for record in queryresult:
-#        print record
-        outputrow = {'earthquake id': record[0],
-                     'city name': record[1],
-                     'distance': record[2]}
+        outputrow = converttodict(record)
         writer.writerow(outputrow)
+
+
+def converttodict(sqlrow):
+    outputrow = {'earthquake id': sqlrow[0],
+                 'city name': sqlrow[1],
+                 'distance': sqlrow[2]}
+    return outputrow
 
 
 if __name__ == '__main__':
@@ -110,6 +121,6 @@ if __name__ == '__main__':
     cur.execute('SELECT InitSpatialMetadata()')
     conn.commit()
     conn.close()
-    importcities(cityfilename)
-    importearthquakes(earthquakefilename)
+    importcities(cityfilename, 100000)
+    importearthquakes(earthquakefilename, 4.5)
     performselection(200)
