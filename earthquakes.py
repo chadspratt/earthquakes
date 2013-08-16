@@ -57,7 +57,7 @@ def importearthquakes(filename, minmagnitude):
     conn = db.connect('temp.db')
     cur = conn.cursor()
     # create the table for storing the cities
-    cur.execute('CREATE TABLE earthquakes(id TEXT NOT NULL)')
+    cur.execute('CREATE TABLE earthquakes(id TEXT NOT NULL, mag INTEGER)')
     # add a geometry column (table, field, coord system, type, dimensions)
     # 4326 is the EPSG SRID for WGS 84
     cur.execute("SELECT AddGeometryColumn('earthquakes', 'geom', 4326, " +
@@ -75,30 +75,54 @@ def importearthquakes(filename, minmagnitude):
         eqgeom = "GeomFromText('POINT("
         eqgeom += str(eqcoords[0]) + " " + str(eqcoords[1])
         eqgeom += ")', 4326)"
-        query = "INSERT INTO earthquakes(id, geom) "
-        query += "VALUES ('" + eqid + "', " + eqgeom + ")"
+        query = "INSERT INTO earthquakes(id, mag, geom) "
+        query += "VALUES ('" + eqid + "', " + str(magnitude) + ", " + eqgeom + ")"
         cur.execute(query)
     conn.commit()
     conn.close()
 
 
+def getearthquakes():
+    conn = db.connect('temp.db')
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM earthquakes")
+    outputearthquakes(cur)
+    conn.close()
+
+
+def outputearthquakes(queryresult):
+    fieldnames = ['earthquake id', 'magnitude']
+    with open('result_earthquakes.csv', 'w') as outputfile:
+        outputfile.truncate(0)
+        # might be marginally faster to just output it manually
+        # outputfile.write(','.join(record) + '\n')
+        writer = csv.DictWriter(outputfile, fieldnames)
+        writer.writeheader()
+        for record in queryresult:
+            outputrow = {'earthquake id': record[0],
+                         'magnitude': record[1]}
+            writer.writerow(outputrow)
+
+
 # perform the query and output the result to a csv file
-def performselection(kmdist):
+def getcitiesnearearthquakes(kmdist):
     dist = kmdist * 1000
     query = "SELECT e.id, c.name, Distance(e.geom, c.geom) "
-    query += "FROM earthquakes AS e, cities as c "
+    query += "FROM earthquakes AS e, cities AS c "
+    # Distance and PtDistWithin don't seem to use the same method of measuring
+    # distance, since
+#    query += "WHERE PtDistWithin(e.geom, c.geom, " + str(dist) + ", 1)"
     query += "WHERE PtDistWithin(e.geom, c.geom, " + str(dist) + ")"
     conn = db.connect('temp.db')
     cur = conn.cursor()
     cur.execute(query)
-    outputtocsv(cur)
+    outputcities(cur)
     conn.close()
 
 
-def outputtocsv(queryresult):
-    print 'starting output'
+def outputcities(queryresult):
     fieldnames = ['earthquake id', 'city name', 'distance']
-    with open('result.csv', 'w') as outputfile:
+    with open('result_cities.csv', 'w') as outputfile:
         outputfile.truncate(0)
         # might be marginally faster to just output it manually
         # outputfile.write(','.join(record) + '\n')
@@ -108,6 +132,8 @@ def outputtocsv(queryresult):
             outputrow = {'earthquake id': record[0],
                          'city name': record[1],
                          'distance': record[2]}
+            if re.search("''", outputrow['city name']):
+                outputrow['city name'] = re.sub("''", "'", outputrow['city name'])
             writer.writerow(outputrow)
 
 
@@ -123,4 +149,5 @@ if __name__ == '__main__':
     conn.close()
     importcities(cityfilename, 100000)
     importearthquakes(earthquakefilename, 4.5)
-    performselection(200)
+    getearthquakes()
+    getcitiesnearearthquakes(200)
