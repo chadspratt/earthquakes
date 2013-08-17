@@ -7,16 +7,20 @@ Created on Thu Aug 15 23:06:56 2013
 import csv
 import json
 import re
+import urllib
+import zipfile
 
 # extends sqlite with spatial abilities
 from pyspatialite import dbapi2 as db
 
+cityurl = 'http://download.geonames.org/export/dump/cities15000.zip'
 cityfilename = 'cities15000.txt'
 cityfilefields = ['geonameid', 'name', 'asciiname', 'alternatenames',
                   'latitude', 'longitude', 'feature class', 'feature code',
                   'country code', 'cc2', 'admin1 code', 'admin2 code',
                   'admin3 code', 'admin4 code', 'population', 'elevation',
                   'dem', 'timezone', 'modification date']
+earthquakeurl = 'http://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson'
 earthquakefilename = 'all_week.geojson'
 
 
@@ -137,10 +141,9 @@ def outputcities(queryresult):
         for record in queryresult:
             outputrow = {'earthquake id': record[0],
                          'city name': record[1],
-#                         'distance': record[2]}
                          # convert from degrees to kilometers
                          'distance': record[2] * 111.12}
-            #PtDistWithin gives some questionable values, so clamp output here
+            #PtDistWithin gives some questionable results, so clamp output here
             if outputrow['distance'] > 200:
                 continue
             # unescape apostrophes
@@ -148,6 +151,15 @@ def outputcities(queryresult):
                 outputrow['city name'] = re.sub("''", "'", outputrow['city name'])
             writer.writerow(outputrow)
 
+
+def downloadearthquakes(url, filename):
+    urllib.urlretrieve(url, filename)
+
+
+def downloadcities(url, filename):
+    urllib.urlretrieve(url, filename + '.zip')
+    with zipfile.ZipFile(filename + '.zip') as cityfile:
+        cityfile.extractall()
 
 if __name__ == '__main__':
     # clear the temp db
@@ -160,6 +172,8 @@ if __name__ == '__main__':
     cur.execute('SELECT InitSpatialMetadata()')
     conn.commit()
     conn.close()
+    downloadearthquakes(earthquakeurl, earthquakefilename)
+    downloadcities(cityurl, cityfilename)
     # import cities with more than 100k population
     importcities(cityfilename, 100000)
     # load all earthquakes with greater than 4.5 magnitude
